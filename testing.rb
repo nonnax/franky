@@ -10,6 +10,10 @@ get '/print' do
   erb :index
 end
 
+get '/print/:id' do
+  ' res.write @res.params'
+end
+
 get '/time' do
   @time = Time.now
   erb :time
