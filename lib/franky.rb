@@ -3,16 +3,13 @@
 require 'forwardable'
 
 class Franky
+  attr :app
   extend Forwardable
   def_delegators :@res, :status, :write, :headers, :redirect
   def_delegators :@req, :status, :headers, :params
 
   def self.get_instance
     @instance ||= new
-  end
-
-  def intitialize
-    @headers = { 'Content-Type' => 'text/html; charset=utf-8' }
   end
 
   def register(method, path, block)
@@ -44,7 +41,7 @@ class Franky
   end
 
   def call(env)
-    dup._call(env)
+    _call(env)
   end
 
   def status(code)
