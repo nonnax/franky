@@ -1,36 +1,40 @@
+# frozen_string_literal: true
+
 require 'forwardable'
 
 class Franky
   extend Forwardable
   def_delegators :@res, :status, :write, :headers
   def_delegators :@req, :status, :headers, :params
-   
+
   def self.get_instance
     @instance ||= new
   end
+
   def intitialize
-    @headers = { 'Content-Type' => 'text/html; charset=utf-8' }    
+    @headers = { 'Content-Type' => 'text/html; charset=utf-8' }
   end
+
   def _call(env)
-    @req=Rack::Request.new env
-    @res=Rack::Response.new
-    @status=@res.status
+    @req = Rack::Request.new env
+    @res = Rack::Response.new
   end
-  
+
   def register(method, path, block)
     route = {
-      path: path, 
-      compiled_path: nil, 
-      extra_params: nil, 
+      path: path,
+      compiled_path: nil,
+      extra_params: nil,
       block: block
     }
-    
-    compiled_path, extra_params = to_pattern(path)
-    route[:compiled_path]=compiled_path
-    route[:extra_params]=extra_params
-    routes[method] << route
+
+    compile_path(path).then do |compiled_path, extra_params|
+      route[:compiled_path] = compiled_path
+      route[:extra_params] = extra_params
+      self.routes[method] << route
+    end
   end
-  
+
   def routes
     @routes ||= Hash.new { |hash, key| hash[key] = [] }
   end
@@ -45,86 +49,90 @@ class Franky
   def headers(additional_headers)
     @req.add_header additional_headers
   end
-  
+
   def status(code)
     @req.status = code
   end
-  
+
   module Helpers
-    %w{ get post patch put delete }.each do |method|
+    %w[get post patch put delete].each do |method|
       define_method(method) do |path, &block|
         Franky
           .get_instance
           .register(method.upcase.to_sym, path, block)
       end
     end
-  
-    def redirect(target, code=302)
-      Franky.get_instance.instance_eval do
-        status(code)
-        headers 'Location' => target
+
+    def redirect(target, code = 302)
+      Franky
+        .get_instance.instance_eval do
+          status(code)
+          headers 'Location' => target
       end
     end
 
-
     def erb(view)
-      # __dir__ is a special method that always return the current file's 
-      # directory.
-      path = File.expand_path("../views/#{view}.erb", __dir__)
-      layout_path = File.expand_path("../views/layout.erb", __dir__)
-      template = ERB.new(File.read(path))
-      layout_template = ERB.new(File.read(layout_path))
+      render(view)
+    end
+  end
 
-      out=_render( template)
-      _render( layout_template){out}
-    end 
+  def render(view, layout: :layout)
+    # __dir__ is a special method that always return the current file's directory.
+    templates = []
+    templates << File.expand_path("../views/#{view}.erb", __dir__)
+    templates << File.expand_path("../views/#{layout}.erb", __dir__)
+    
+    templates.inject("") do |doc, f|
+      _render(f){doc}
+    end
   end
   
-  def _render(template)
-      # Here the binding is a special Ruby method, basically it represents
-      # the context of current object self, and in this case, the Franky instance.
-      # 
-    template.result(binding)
+  def _render(f)
+    # Here the binding is a special Ruby method, basically it represents
+    # the context of current object self, and in this case, the Franky instance.
+    #
+    ERB.new( File.read(f) ).result( binding )
   end
 
   private
-    def to_pattern(path)
+
+  def compile_path(path)
     # returns transformed path pattern and any extra_param_names matched
     # '/articles/' => %r{\A/articles/?\z}
     # '/articles/:id' => %r{\A/articles/([^/]+)/?\z}
     # '/restaurants/:id/comments' => %r{\A/restaurants/([^/]+)/comments/?\z}
 
     # remove trailing slashes then add named capture group
-    extra_param_names=[]
-    path = 
+    extra_param_names = []
+    path =
       path
-      .gsub(/\/+\z/, '')
-      .gsub(/:\w+/){|match|
-        extra_param_names << match.gsub(':','').to_sym
+      .gsub(%r{/+\z}, '')
+      .gsub(/:\w+/) do |match|
+        extra_param_names << match.gsub(':', '').to_sym
         '([^/]+)'
-      }
+      end
 
     [%r{\A#{path}/?\z}, extra_param_names]
   end
 
   def service
     @routes[@req.request_method.to_sym]
-      .detect{ |r| r[:compiled_path].match(@req.path_info)  } # captures collected by Regexp.last_match
-      .then{ |r|
-          if r
-            extra_params = r[:extra_params].zip( Regexp.last_match.captures).to_h
-            self.params.merge!(extra_params)
-          end
-          r
-      }
-      .then{ |r| 
+      .detect { |r| r[:compiled_path].match(@req.path_info) } # captures collected by Regexp.last_match
+      .then do |r|
+        if r
+           r[:extra_params].zip( Regexp.last_match.captures )
+           .to_h
+           .then{|extra_params| self.params.merge!(extra_params) }
+        end
+        r
+      end
+      .then do |r|
         return Franky.get_instance.instance_eval(&r[:block]).to_s if r
-      }
-    # default 
+      end
+    # default
     status 404
     "Not Found: #{method} #{@req.path_info}"
   end
-
 end
 
 include Franky::Helpers
