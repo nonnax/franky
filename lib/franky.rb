@@ -108,25 +108,21 @@ class Franky
   end
 
   def service
-    # self.params = @req.query
-    method = @req.request_method.to_sym
-    path_info = @req.path_info
-
-    route =
-      @routes[method]
-        .find { |r| r[:compiled_path].match(path_info)  } # captures collected by Regexp.last_match
-        .then { |r_found | 
-            extra_params = r_found[:extra_params].zip( Regexp.last_match.captures).to_h
+    @routes[@req.request_method.to_sym]
+      .detect{ |r| r[:compiled_path].match(@req.path_info)  } # captures collected by Regexp.last_match
+      .then{ |r|
+          if r
+            extra_params = r[:extra_params].zip( Regexp.last_match.captures).to_h
             self.params.merge!(extra_params)
-            r_found
-        }
-
-    if route
-      Franky.get_instance.instance_eval(&route[:block]).to_s
-    else
-      status 404
-      "Not Found: #{method} #{@req.path_info}"
-    end
+          end
+          r
+      }
+      .then{ |r| 
+        return Franky.get_instance.instance_eval(&r[:block]).to_s if r
+      }
+    # default 
+    status 404
+    "Not Found: #{method} #{@req.path_info}"
   end
 
 end
