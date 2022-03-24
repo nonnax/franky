@@ -15,11 +15,6 @@ class Franky
     @headers = { 'Content-Type' => 'text/html; charset=utf-8' }
   end
 
-  def _call(env)
-    @req = Rack::Request.new env
-    @res = Rack::Response.new
-  end
-
   def register(method, path, block)
     route = {
       path: path,
@@ -39,11 +34,17 @@ class Franky
     @routes ||= Hash.new { |hash, key| hash[key] = [] }
   end
 
-  def call(env)
-    _call(env)
+  def _call(env)
+    @env = env
+    @req = Rack::Request.new @env
+    @res = Rack::Response.new
     body = service
     @res.write body
     @res.finish
+  end
+
+  def call(env)
+    dup._call(env)
   end
 
   def status(code)
