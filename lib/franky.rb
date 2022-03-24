@@ -9,7 +9,7 @@ class Franky
     @instance ||= new
   end
   def intitialize
-      @headers = { 'Content-Type' => 'text/html; charset=utf-8' }    
+    @headers = { 'Content-Type' => 'text/html; charset=utf-8' }    
   end
   def _call(env)
     @req=Rack::Request.new env
@@ -27,48 +27,9 @@ class Franky
     @routes
   end
 # 
-  # def service
-    # # self.params = @req.query
-    # method = @req.request_method.to_sym
-    # path_info = @req.path_info
-# 
-    # named_param = nil
-    # block =
-      # @routes
-        # .find { |pair, _|
-          # path, meth = pair
-          # pattern, named_param = to_pattern(path)
-          # # p [pattern, named_param]
-          # pattern.match(path_info)
-        # }
-        # .then{|route|
-          # p [route.class, route]
-          # route.last rescue nil
-          # # route[0][method] rescue nil
-        # }
-# #
-    # if block
-      # # $1 will be the named param value
-      # self.params.merge!({ named_param => $1 }) if named_param
-      # Franky.get_instance.instance_eval(&block).to_s
-    # else
-      # "unknown route: #{method} #{@req.path_info}"
-    # end
-  # end
-
   def call(env)
     _call(env)
-    p params
-    p @res.instance_variable_get :@headers
-    p @res.instance_variables
-    p @req.instance_variables
-
-    body = @routes[
-                    [ 
-                      @req.path_info, @req.request_method.to_sym 
-                    ]
-                  ]&.call.to_s
-    
+    body = service
     @res.write body
     @res.finish
   end
@@ -100,36 +61,77 @@ class Franky
 
     def erb(view)
       # __dir__ is a special method that always return the current file's 
-      # directory. Here the binding is a special Ruby method, basically it represents
-      # the context of current object self, and in this case, the FakeSinatra instance.
+      # directory.
+      path = File.expand_path("../views/#{view}.erb", __dir__)
+      layout_path = File.expand_path("../views/layout.erb", __dir__)
+      template = ERB.new(File.read(path))
+      layout_template = ERB.new(File.read(layout_path))
+
+      out=_render( template)
+      _render( layout_template){out}
+    end 
+  end
+  def _render(template)
+      # Here the binding is a special Ruby method, basically it represents
+      # the context of current object self, and in this case, the FrankenSinatra instance.
       # 
       # Objects of class Binding encapsulate the execution context at some
       # particular place in the code and retain this context for future use. The
       # variables, methods, value of self, and possibly an iterator block that can be
       # accessed in this context are all retained. Binding objects can be created
-      # usingKernel#binding
-      path = File.expand_path("../views/#{view}.erb", __dir__)
-      template = ERB.new(File.read(path))
-
-      template.result(binding)
-    end 
+      # usingKernel#binding  
+    template.result(binding)
   end
 
   private
     def to_pattern(path)
+    # returns transformed path pattern and any extra_param_names matched
     # '/articles/' => %r{\A/articles/?\z}
     # '/articles/:id' => %r{\A/articles/([^/]+)/?\z}
     # '/restaurants/:id/comments' => %r{\A/restaurants/([^/]+)/comments/?\z}
 
     # remove trailing slashes then add named capture group
-    p path = 
+    extra_param_names=[]
+    path = 
       path
       .gsub(/\/+\z/, '')
-      .gsub(/\:([^\/]+)/, '([^/]+)')
+      .gsub(/:\w+/){|match|
+        extra_param_names << match.gsub(':','')
+        '([^/]+)'
+      }
 
-    # $1 will be the matched named param key if present
-    [%r{\A#{path}/?\z}, $1]
+    [%r{\A#{path}/?\z}, extra_param_names]
   end
+
+  def service
+    # self.params = @req.query
+    method = @req.request_method.to_sym
+    path_info = @req.path_info
+
+    named_param = nil
+    block =
+      @routes
+        .find { |pair, _|
+          path, meth = pair
+          pattern, named_param = to_pattern(path)
+          pattern.match(path_info) # captures collected by Regexp.last_match
+        }
+        .then{|route| route.last rescue nil }
+
+    if block
+      # named_param.zip( Regexp.last_match.captures) to hash
+      # 
+      unless named_param.empty?
+        extra_params = named_param.map(&:to_sym).zip( Regexp.last_match.captures).to_h
+        self.params.merge!(extra_params) 
+      end
+      Franky.get_instance.instance_eval(&block).to_s
+    else
+      @res.status=404
+      "Not Found: #{method} #{@req.path_info}"
+    end
+  end
+
 
 end
 

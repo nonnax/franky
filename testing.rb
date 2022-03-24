@@ -11,7 +11,11 @@ get '/print' do
 end
 
 get '/print/:id' do
-  ' res.write @res.params'
+   @req.params
+end
+
+get '/print/:id/:size' do
+   @req.params
 end
 
 get '/time' do
