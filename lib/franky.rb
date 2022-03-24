@@ -4,7 +4,7 @@ require 'forwardable'
 
 class Franky
   extend Forwardable
-  def_delegators :@res, :status, :write, :headers
+  def_delegators :@res, :status, :write, :headers, :redirect
   def_delegators :@req, :status, :headers, :params
 
   def self.get_instance
@@ -46,15 +46,12 @@ class Franky
     @res.finish
   end
 
-  def headers(additional_headers)
-    @req.add_header additional_headers
-  end
-
   def status(code)
-    @req.status = code
+    @res.status=code
   end
 
   module Helpers
+    # public methods   
     %w[get post patch put delete].each do |method|
       define_method(method) do |path, &block|
         Franky
@@ -63,18 +60,12 @@ class Franky
       end
     end
 
-    def redirect(target, code = 302)
-      Franky
-        .get_instance.instance_eval do
-          status(code)
-          headers 'Location' => target
-      end
-    end
-
     def erb(view)
       render(view)
     end
   end
+
+  private
 
   def render(view, layout: :layout)
     # __dir__ is a special method that always return the current file's directory.
@@ -93,8 +84,6 @@ class Franky
     #
     ERB.new( File.read(f) ).result( binding )
   end
-
-  private
 
   def compile_path(path)
     # returns transformed path pattern and any extra_param_names matched
@@ -130,9 +119,17 @@ class Franky
         return Franky.get_instance.instance_eval(&r[:block]).to_s if r
       end
     # default
-    status 404
-    "Not Found: #{method} #{@req.path_info}"
+    _not_found
+  end
+  def _not_found
+     @res.status=404
+     not_found
+  end
+  def not_found
+    # to be overriden
+    'Not Found'
   end
 end
 
+# public methods get, post, etc...
 include Franky::Helpers
