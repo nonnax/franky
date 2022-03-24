@@ -3,7 +3,7 @@
 require_relative 'lib/franky'
 
 get '/' do
-  'hello'
+  erb :index
 end
 
 get '/print' do

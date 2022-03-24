@@ -15,18 +15,26 @@ class Franky
     @req=Rack::Request.new env
     @res=Rack::Response.new
     @status=@res.status
-    # service
   end
   
   def register(method, path, block)
-    @routes ||= {}
-    @routes[[path, method]] = block
+    route = {
+      path: path, 
+      compiled_path: nil, 
+      extra_params: nil, 
+      block: block
+    }
+    
+    compiled_path, extra_params = to_pattern(path)
+    route[:compiled_path]=compiled_path
+    route[:extra_params]=extra_params
+    routes[method] << route
   end
   
   def routes
-    @routes
+    @routes ||= Hash.new { |hash, key| hash[key] = [] }
   end
-# 
+
   def call(env)
     _call(env)
     body = service
@@ -71,15 +79,11 @@ class Franky
       _render( layout_template){out}
     end 
   end
+  
   def _render(template)
       # Here the binding is a special Ruby method, basically it represents
-      # the context of current object self, and in this case, the FrankenSinatra instance.
+      # the context of current object self, and in this case, the Franky instance.
       # 
-      # Objects of class Binding encapsulate the execution context at some
-      # particular place in the code and retain this context for future use. The
-      # variables, methods, value of self, and possibly an iterator block that can be
-      # accessed in this context are all retained. Binding objects can be created
-      # usingKernel#binding  
     template.result(binding)
   end
 
@@ -96,7 +100,7 @@ class Franky
       path
       .gsub(/\/+\z/, '')
       .gsub(/:\w+/){|match|
-        extra_param_names << match.gsub(':','')
+        extra_param_names << match.gsub(':','').to_sym
         '([^/]+)'
       }
 
@@ -108,30 +112,22 @@ class Franky
     method = @req.request_method.to_sym
     path_info = @req.path_info
 
-    named_param = nil
-    block =
-      @routes
-        .find { |pair, _|
-          path, meth = pair
-          pattern, named_param = to_pattern(path)
-          pattern.match(path_info) # captures collected by Regexp.last_match
+    route =
+      @routes[method]
+        .find { |r| r[:compiled_path].match(path_info)  } # captures collected by Regexp.last_match
+        .then { |r_found | 
+            extra_params = r_found[:extra_params].zip( Regexp.last_match.captures).to_h
+            self.params.merge!(extra_params)
+            r_found
         }
-        .then{|route| route.last rescue nil }
 
-    if block
-      # named_param.zip( Regexp.last_match.captures) to hash
-      # 
-      unless named_param.empty?
-        extra_params = named_param.map(&:to_sym).zip( Regexp.last_match.captures).to_h
-        self.params.merge!(extra_params) 
-      end
-      Franky.get_instance.instance_eval(&block).to_s
+    if route
+      Franky.get_instance.instance_eval(&route[:block]).to_s
     else
-      @res.status=404
+      status 404
       "Not Found: #{method} #{@req.path_info}"
     end
   end
-
 
 end
 
